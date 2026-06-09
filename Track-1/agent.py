@@ -2,10 +2,12 @@
 agent.py — LEORIX Edge Track 1 — Autonomous Trading Agent
 Stack: CMC Signal → SMC Momentum Strategy → Circuit Breaker → TWAK Execution
 Chain: BSC Testnet
-Execution: BNB/USDT swaps only (BSC native, cleanest pair)
+OCO: TP + SL placed after entry. When one fires, the other is cancelled.
+State: persisted to disk — survives restarts.
+Optimizations: Single-pass CLI registry scanning ($O(1)$) + Atomic exit validation.
 """
 
-import os, sys, json, time
+import os, sys, json, time, re
 from datetime import datetime
 
 sys.path.insert(0, "../Track-2")
@@ -14,22 +16,17 @@ from skill import generate_signal
 
 sys.path.insert(0, ".")
 from circuit_breaker import CircuitBreaker
-from executor import (
-    get_price, get_portfolio, swap_quote, swap_execute,
-    list_automations, WALLET_ADDRESS
-)
+from executor import get_price, swap_quote, swap_execute, _run, WALLET_ADDRESS
 
 # ── Config ────────────────────────────────────────────────────────────────────
 CMC_API_KEY    = os.getenv("CMC_API_KEY", "2d25132563a8497893597470798e861e")
-TRADE_USDT     = float(os.getenv("TRADE_AMOUNT_USD", "5"))   # USDT to spend per trade
+TRADE_USDT     = float(os.getenv("TRADE_AMOUNT_USD", "5"))
 MIN_CONFLUENCE = int(os.getenv("MIN_CONFLUENCE", "3"))
 SCAN_INTERVAL  = int(os.getenv("SCAN_INTERVAL_SEC", "300"))
 DRY_RUN        = os.getenv("DRY_RUN", "true").lower() == "true"
-
-# For BSC execution we trade BNB/USDT only — native pair, no precision issues
-# Signal is derived from BTC/ETH/BNB but execution is always BNB swap
-SIGNAL_SYMBOLS  = ["BTC", "ETH", "BNB"]
-EXEC_SYMBOL     = "BNB"   # always execute on BNB — BSC native
+CHAIN          = os.getenv("CHAIN", "smartchain-testnet")
+SIGNAL_SYMBOLS = ["BTC", "ETH", "BNB"]
+STATE_FILE     = "logs/state.json"
 
 # ── Logging ───────────────────────────────────────────────────────────────────
 def log(level: str, msg: str):
@@ -41,28 +38,133 @@ def save_log(entry: dict):
     with open("logs/agent.jsonl", "a") as f:
         f.write(json.dumps(entry) + "\n")
 
-# ── Execution logic ───────────────────────────────────────────────────────────
-def execute_signal(signal: dict, regime: str) -> dict:
-    """
-    LONG  → buy BNB with USDT  (USDT → BNB)
-    SHORT → sell BNB for USDT  (BNB → USDT)
-    Amount: always TRADE_USDT worth
-    """
-    direction = signal["direction"]
+# ── State persistence ─────────────────────────────────────────────────────────
+def load_state() -> dict:
+    """Load open positions from disk on startup."""
+    if os.path.exists(STATE_FILE):
+        try:
+            with open(STATE_FILE, "r") as f:
+                data = json.load(f)
+                if data:
+                    log("INFO", f"Restored {len(data)} open position(s) from state file")
+                return data
+        except Exception as e:
+            log("WARN", f"Failed to parse state file: {e}. Starting fresh.")
+    return {}
+
+def save_state(open_positions: dict):
+    """Atomically write open positions to disk."""
+    try:
+        os.makedirs("logs", exist_ok=True)
+        tmp = f"{STATE_FILE}.tmp"
+        with open(tmp, "w") as f:
+            json.dump(open_positions, f, indent=2)
+        os.replace(tmp, STATE_FILE)
+    except Exception as e:
+        log("ERR", f"Failed to save state: {e}")
+
+# ── TWAK helpers ──────────────────────────────────────────────────────────────
+def place_limit_order(from_tok: str, to_tok: str, amount: float,
+                      price: float, condition: str) -> str | None:
+    ok, output = _run([
+        "automate", "add",
+        "--from", from_tok, "--to", to_tok,
+        "--chain", CHAIN,
+        "--amount", str(amount),
+        "--price", str(round(price, 2)),
+        "--condition", condition,
+        "--max-runs", "1",
+        "--json",
+    ])
+    if ok:
+        try:
+            data = json.loads(output)
+            return data.get("id")
+        except:
+            match = re.search(r'"id":\s*"([a-f0-9\-]{36})"', output)
+            return match.group(1) if match else None
+    return None
+
+def cancel_order(automation_id: str) -> bool:
+    ok, _ = _run(["automate", "delete", automation_id])
+    return ok
+
+def get_active_automation_ids() -> set:
+    """Fetches all active automation IDs in a single process execution."""
+    ok, output = _run(["automate", "list", "--json"])
+    if not ok:
+        log("ERR", "Failed to query active automation registry")
+        return set()
+    try:
+        data = json.loads(output)
+        automations = data if isinstance(data, list) else data.get("automations", [])
+        return {str(a.get("id")) for a in automations if a.get("id")}
+    except Exception as e:
+        log("ERR", f"Error parsing automation registry JSON: {e}")
+        return set()
+
+# ── OCO exit placement ────────────────────────────────────────────────────────
+def place_oco_exits(direction: str, tp: float, sl: float) -> tuple:
+    bnb_price = get_price("BNB") or 600.0
+    exit_amount_bnb = round(TRADE_USDT / bnb_price, 6)
 
     if direction == "LONG":
-        from_tok = "USDT"
-        to_tok   = "BNB"
-        amount   = TRADE_USDT          # spend $5 USDT to buy BNB
+        from_tok, to_tok = "BNB", "USDT"
+        tp_id = place_limit_order(from_tok, to_tok, exit_amount_bnb, tp, "above")
+        sl_id = place_limit_order(from_tok, to_tok, exit_amount_bnb, sl, "below")
     else:
-        from_tok = "BNB"
-        to_tok   = "USDT"
-        # Convert USDT amount to BNB quantity
+        from_tok, to_tok = "USDT", "BNB"
+        tp_id = place_limit_order(from_tok, to_tok, TRADE_USDT, tp, "below")
+        sl_id = place_limit_order(from_tok, to_tok, TRADE_USDT, sl, "above")
+
+    return tp_id, sl_id
+
+# ── Position monitor (OCO logic) ──────────────────────────────────────────────
+def monitor_positions(open_positions: dict, cb: CircuitBreaker):
+    """Checks open positions using a single-pass active registry snapshot ($O(1)$ memory checks)."""
+    closed = []
+    active_ids = get_active_automation_ids()
+
+    for symbol, pos in open_positions.items():
+        tp_id    = pos.get("tp_id")
+        sl_id    = pos.get("sl_id")
+        
+        tp_alive = str(tp_id) in active_ids if tp_id else False
+        sl_alive = str(sl_id) in active_ids if sl_id else False
+
+        if tp_id and not tp_alive:
+            log("CLOSE", f"{symbol}: TP hit @ {pos['tp']:.2f} 🎯")
+            if sl_id and sl_alive:
+                cancelled = cancel_order(sl_id)
+                log("OCO", f"{symbol}: SL cancelled {'✅' if cancelled else '⚠️'}")
+            cb.record_trade_close(pos["rr"] * TRADE_USDT * 0.01)
+            save_log({**pos, "outcome": "WIN", "pnl_r": pos["rr"],
+                      "close_time": datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S")})
+            closed.append(symbol)
+
+        elif sl_id and not sl_alive:
+            log("CLOSE", f"{symbol}: SL hit @ {pos['sl']:.2f} 🛑")
+            if tp_id and tp_alive:
+                cancelled = cancel_order(tp_id)
+                log("OCO", f"{symbol}: TP cancelled {'✅' if cancelled else '⚠️'}")
+            cb.record_trade_close(-TRADE_USDT * 0.01)
+            save_log({**pos, "outcome": "LOSS", "pnl_r": -1.0,
+                      "close_time": datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S")})
+            closed.append(symbol)
+
+    for symbol in closed:
+        del open_positions[symbol]
+
+    if closed:
+        save_state(open_positions)
+
+# ── Swap params ───────────────────────────────────────────────────────────────
+def get_swap_params(direction: str):
+    if direction == "LONG":
+        return "USDT", "BNB", TRADE_USDT
+    else:
         bnb_price = get_price("BNB") or 600.0
-        amount    = round(TRADE_USDT / bnb_price, 6)  # e.g. 5/600 = 0.008333 BNB
-
-    return from_tok, to_tok, amount
-
+        return "BNB", "USDT", round(TRADE_USDT / bnb_price, 6)
 
 # ── Agent loop ────────────────────────────────────────────────────────────────
 def run_agent():
@@ -70,16 +172,15 @@ def run_agent():
     log("INFO", f"Wallet   : {WALLET_ADDRESS}")
     log("INFO", f"DRY RUN  : {DRY_RUN}")
     log("INFO", f"Trade    : ${TRADE_USDT} USDT per signal")
-    log("INFO", f"Execution: BNB/USDT on BSC")
+    log("INFO", f"Chain    : {CHAIN}")
     log("INFO", f"Min confluence: {MIN_CONFLUENCE}/5")
 
     client = CMCClient(CMC_API_KEY)
-    cb = CircuitBreaker(
-        max_daily_loss_pct=5.0,
-        max_open_positions=3,
-        max_risk_per_trade_pct=1.0,
-    )
+    cb = CircuitBreaker(max_daily_loss_pct=5.0, max_open_positions=3, max_risk_per_trade_pct=1.0)
     cb.update_balance(TRADE_USDT * 10)
+
+    # Load persisted state
+    open_positions = load_state()
 
     log("INFO", "Agent ready. Starting scan loop...\n")
 
@@ -88,6 +189,11 @@ def run_agent():
         log("SCAN", f"─── New scan at {scan_time} ───")
 
         try:
+            # Monitor open positions first (OCO check)
+            if open_positions:
+                log("MONITOR", f"Checking {len(open_positions)} open position(s)...")
+                monitor_positions(open_positions, cb)
+
             regime = client.get_market_regime()
             log("INFO", f"Market regime: {regime}")
 
@@ -100,8 +206,10 @@ def run_agent():
             best_signal = None
             best_confluence = 0
 
-            # Scan all symbols, pick highest confluence signal
             for symbol in SIGNAL_SYMBOLS:
+                if symbol in open_positions:
+                    log("SKIP", f"{symbol}: already in position")
+                    continue
                 try:
                     candles = client.get_ohlcv_historical(symbol, interval="4h", limit=100)
                     signal = generate_signal(symbol, candles, regime, min_rr=2.0)
@@ -109,7 +217,6 @@ def run_agent():
                     if signal["direction"] == "NO_SIGNAL":
                         log("SKIP", f"{symbol}: {signal.get('reason', 'No signal')}")
                         continue
-
                     if signal["confluence"] < MIN_CONFLUENCE:
                         log("SKIP", f"{symbol}: Low confluence {signal['confluence']}/5")
                         continue
@@ -117,68 +224,92 @@ def run_agent():
                     log("SIGNAL", (
                         f"{symbol} {signal['direction']} | "
                         f"Confluence: {signal['confluence']}/5 | "
-                        f"Entry: {signal['entry']} | "
+                        f"Entry: {signal['entry']:.2f} | "
+                        f"SL: {signal['sl']:.2f} | "
+                        f"TP: {signal['tp']:.2f} | "
                         f"RR: {signal['rr']}"
                     ))
 
                     if signal["confluence"] > best_confluence:
                         best_confluence = signal["confluence"]
-                        best_signal = signal
-                        best_signal["symbol"] = symbol
+                        best_signal = {**signal, "symbol": symbol}
 
                 except Exception as e:
                     log("ERR", f"{symbol}: {e}")
                     continue
 
-            # Execute best signal only
             if best_signal:
-                symbol = best_signal["symbol"]
+                symbol    = best_signal["symbol"]
                 direction = best_signal["direction"]
+                tp        = best_signal["tp"]
+                sl        = best_signal["sl"]
 
                 for r in best_signal["reasons"]:
                     log("REASON", f"  • {r}")
 
-                from_tok, to_tok, amount = execute_signal(best_signal, regime)
-                log("TRADE", f"Executing: {amount} {from_tok} → {to_tok} (${TRADE_USDT} notional)")
+                from_tok, to_tok, amount = get_swap_params(direction)
+                log("TRADE", f"Entry: {amount} {from_tok} → {to_tok}")
 
-                # Get quote first
                 quote = swap_quote(from_tok, to_tok, amount)
                 log("QUOTE", f"{quote['raw'][:120]}")
 
-                entry = {
-                    "time": scan_time,
-                    "symbol": symbol,
+                entry_log = {
+                    "time": scan_time, "symbol": symbol,
                     "direction": direction,
                     "entry": best_signal["entry"],
-                    "sl": best_signal["sl"],
-                    "tp": best_signal["tp"],
-                    "rr": best_signal["rr"],
+                    "sl": sl, "tp": tp, "rr": best_signal["rr"],
                     "confluence": best_signal["confluence"],
-                    "regime": regime,
-                    "from_token": from_tok,
-                    "to_token": to_tok,
-                    "amount": amount,
-                    "dry_run": DRY_RUN,
+                    "regime": regime, "dry_run": DRY_RUN,
                     "reasons": best_signal["reasons"],
                 }
 
                 if DRY_RUN:
-                    log("DRY", f"Signal logged, execution skipped (DRY_RUN=true)")
-                    entry["status"] = "DRY_RUN"
-                    save_log(entry)
+                    log("DRY", "Signal logged, execution skipped (DRY_RUN=true)")
+                    entry_log["status"] = "DRY_RUN"
+                    save_log(entry_log)
                 else:
-                    log("EXEC", f"Sending swap: {amount} {from_tok} → {to_tok}")
-                    result = swap_execute(from_tok, to_tok, amount)
+                    result = swap_execute(from_tok, to_tok, amount, chain=CHAIN)
                     if result["success"]:
-                        log("OK", f"✅ Swap executed — TX: {result['tx_hash']}")
-                        entry["status"] = "EXECUTED"
-                        entry["tx_hash"] = result["tx_hash"]
+                        log("OK", f"✅ Entry executed — TX: {result['tx_hash']}")
                         cb.record_trade_open()
+                        entry_log["status"] = "EXECUTED"
+                        entry_log["entry_tx"] = result["tx_hash"]
+
+                        log("OCO", f"Placing TP @ {tp:.2f} and SL @ {sl:.2f}...")
+                        tp_id, sl_id = place_oco_exits(direction, tp, sl)
+                        
+                        # ── Atomic Exit Guard Logic ──
+                        if not tp_id or not sl_id:
+                            log("CRITICAL", "Partial exit automation placement failure! Initiating emergency rollback counter-swap.")
+                            if tp_id: cancel_order(tp_id)
+                            if sl_id: cancel_order(sl_id)
+                            
+                            rb_from, rb_to, rb_amt = get_swap_params("SHORT" if direction == "LONG" else "LONG")
+                            swap_execute(rb_from, rb_to, rb_amt, chain=CHAIN)
+                            
+                            entry_log["status"] = "REJECTED_EXIT_FAILURE"
+                            save_log(entry_log)
+                            continue
+
+                        log("OCO", f"TP id: {tp_id}  SL id: {sl_id}")
+                        entry_log["tp_id"] = tp_id
+                        entry_log["sl_id"] = sl_id
+
+                        pos = {
+                            "symbol": symbol, "direction": direction,
+                            "tp": tp, "sl": sl, "rr": best_signal["rr"],
+                            "tp_id": tp_id, "sl_id": sl_id,
+                            "entry_tx": result["tx_hash"],
+                            "open_time": scan_time,
+                        }
+                        open_positions[symbol] = pos
+                        save_state(open_positions)
                     else:
-                        log("ERR", f"Swap failed — {result['raw'][:150]}")
-                        entry["status"] = "FAILED"
-                        entry["error"] = result["raw"][:200]
-                    save_log(entry)
+                        log("ERR", f"Entry failed — {result['raw'][:150]}")
+                        entry_log["status"] = "FAILED"
+                        entry_log["error"] = result["raw"][:200]
+
+                    save_log(entry_log)
             else:
                 log("INFO", "No qualifying signal this scan")
 
@@ -202,17 +333,16 @@ def run_once():
     client = CMCClient(CMC_API_KEY)
     regime = client.get_market_regime()
     log("INFO", f"Regime: {regime}")
-
     for symbol in SIGNAL_SYMBOLS:
         candles = client.get_ohlcv_historical(symbol, interval="4h", limit=100)
         signal = generate_signal(symbol, candles, regime, min_rr=2.0)
         print(f"\n{symbol}: {signal['direction']} | confluence {signal.get('confluence',0)}/5")
         for r in signal.get("reasons", []):
             print(f"  • {r}")
-
         if signal["direction"] != "NO_SIGNAL":
-            from_tok, to_tok, amount = execute_signal(signal, regime)
-            print(f"  → Would swap: {amount} {from_tok} → {to_tok}")
+            from_tok, to_tok, amount = get_swap_params(signal["direction"])
+            print(f"  → Entry: {amount} {from_tok} → {to_tok}")
+            print(f"  → TP: {signal['tp']:.2f}  SL: {signal['sl']:.2f}")
 
 
 if __name__ == "__main__":
