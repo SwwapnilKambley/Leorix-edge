@@ -13,6 +13,7 @@ from datetime import datetime
 sys.path.insert(0, "../Track-2")
 from cmc_client import CMCClient
 from skill import generate_signal
+from datetime import UTC
 
 sys.path.insert(0, ".")
 from circuit_breaker import CircuitBreaker
@@ -30,7 +31,7 @@ STATE_FILE     = "logs/state.json"
 
 # ── Logging ───────────────────────────────────────────────────────────────────
 def log(level: str, msg: str):
-    ts = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S")
+    ts = datetime.now(UTC).strftime("%Y-%m-%d %H:%M:%S")
     print(f"[{ts}] [{level}] {msg}", flush=True)
 
 def save_log(entry: dict):
