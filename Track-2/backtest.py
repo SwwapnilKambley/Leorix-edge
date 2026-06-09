@@ -9,7 +9,7 @@ from datetime import datetime
 sys.path.insert(0, ".")
 
 from cmc_client import CMCClient
-from smc_engine import generate_signal
+from skill import generate_signal
 
 
 def timestamp_to_date(ts_ms: int) -> str:
@@ -35,15 +35,15 @@ def run_backtest(
         window = candles[:i + 1]
         signal = generate_signal(symbol, window, regime, min_rr=min_rr)
 
-        if signal.direction == "NO_SIGNAL":
+        if signal["direction"] == "NO_SIGNAL":
             continue
-        if signal.confluence < min_confluence:
+        if signal["confluence"] < min_confluence:
             continue
 
         # Regime filter — only trade with the trend
-        if regime == "BEAR" and signal.direction == "LONG":
+        if regime == "BEAR" and signal["direction"] == "LONG":
             continue
-        if regime == "BULL" and signal.direction == "SHORT":
+        if regime == "BULL" and signal["direction"] == "SHORT":
             continue
 
         last_signal_candle = i  # lock out next candles until this trade closes
@@ -58,26 +58,26 @@ def run_backtest(
         exit_time = None
 
         for fc in future:
-            if signal.direction == "LONG":
-                if fc["low"] <= signal.sl:
+            if signal["direction"] == "LONG":
+                if fc["low"] <= signal["sl"]:
                     outcome = "LOSS"
-                    exit_price = signal.sl
+                    exit_price = signal["sl"]
                     exit_time = timestamp_to_date(fc["time"])
                     break
-                if fc["high"] >= signal.tp:
+                if fc["high"] >= signal["tp"]:
                     outcome = "WIN"
-                    exit_price = signal.tp
+                    exit_price = signal["tp"]
                     exit_time = timestamp_to_date(fc["time"])
                     break
-            elif signal.direction == "SHORT":
-                if fc["high"] >= signal.sl:
+            elif signal["direction"] == "SHORT":
+                if fc["high"] >= signal["sl"]:
                     outcome = "LOSS"
-                    exit_price = signal.sl
+                    exit_price = signal["sl"]
                     exit_time = timestamp_to_date(fc["time"])
                     break
-                if fc["low"] <= signal.tp:
+                if fc["low"] <= signal["tp"]:
                     outcome = "WIN"
-                    exit_price = signal.tp
+                    exit_price = signal["tp"]
                     exit_time = timestamp_to_date(fc["time"])
                     break
 
@@ -87,21 +87,21 @@ def run_backtest(
         # Advance past this trade's future window
         last_signal_candle = i + 11
 
-        pnl_r = signal.rr if outcome == "WIN" else -1.0
+        pnl_r = signal["rr"] if outcome == "WIN" else -1.0
 
         trades.append({
             "symbol": symbol,
-            "direction": signal.direction,
+            "direction": signal["direction"],
             "entry_time": entry_time,
             "exit_time": exit_time,
-            "entry": signal.entry,
-            "sl": signal.sl,
-            "tp": signal.tp,
-            "rr": signal.rr,
-            "confluence": signal.confluence,
+            "entry": signal["entry"],
+            "sl": signal["sl"],
+            "tp": signal["tp"],
+            "rr": signal["rr"],
+            "confluence": signal["confluence"],
             "outcome": outcome,
             "pnl_r": pnl_r,
-            "reasons": signal.reasons,
+            "reasons": signal["reasons"],
         })
 
     return trades
