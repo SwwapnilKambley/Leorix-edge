@@ -1,0 +1,1 @@
+{"time": "2026-06-09 13:19:32", "symbol": "BTC", "direction": "SHORT", "entry": 62356.35, "sl": 64473.2114, "tp": 58122.6271, "rr": 2.0, "confluence": 3, "regime": "BEAR", "dry_run": true, "reasons": ["EMA trend: SHORT (EMA20=62836.76 / EMA50=64769.20)", "BOS confirmed", "Order Block present", "Regime: BEAR"], "status": "DRY_RUN"}
