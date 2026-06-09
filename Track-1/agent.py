@@ -2,13 +2,13 @@
 agent.py — LEORIX Edge Track 1 — Autonomous Trading Agent
 Stack: CMC Signal → SMC Momentum Strategy → Circuit Breaker → TWAK Execution
 Chain: BSC Testnet
+Execution: BNB/USDT swaps only (BSC native, cleanest pair)
 """
 
 import os, sys, json, time
 from datetime import datetime
 
-sys.path.insert(0, "../Track-2")  # reuse cmc_client + skill from Track 2
-
+sys.path.insert(0, "../Track-2")
 from cmc_client import CMCClient
 from skill import generate_signal
 
@@ -20,12 +20,16 @@ from executor import (
 )
 
 # ── Config ────────────────────────────────────────────────────────────────────
-CMC_API_KEY     = os.getenv("CMC_API_KEY", "2d25132563a8497893597470798e861e")
-TRADE_AMOUNT    = float(os.getenv("TRADE_AMOUNT_USD", "5"))   # USD per trade (small for testnet)
-MIN_CONFLUENCE  = int(os.getenv("MIN_CONFLUENCE", "3"))
-SCAN_INTERVAL   = int(os.getenv("SCAN_INTERVAL_SEC", "300"))  # 5 min
-DRY_RUN         = os.getenv("DRY_RUN", "true").lower() == "true"
-SYMBOLS         = ["BTC", "ETH", "BNB"]
+CMC_API_KEY    = os.getenv("CMC_API_KEY", "2d25132563a8497893597470798e861e")
+TRADE_USDT     = float(os.getenv("TRADE_AMOUNT_USD", "5"))   # USDT to spend per trade
+MIN_CONFLUENCE = int(os.getenv("MIN_CONFLUENCE", "3"))
+SCAN_INTERVAL  = int(os.getenv("SCAN_INTERVAL_SEC", "300"))
+DRY_RUN        = os.getenv("DRY_RUN", "true").lower() == "true"
+
+# For BSC execution we trade BNB/USDT only — native pair, no precision issues
+# Signal is derived from BTC/ETH/BNB but execution is always BNB swap
+SIGNAL_SYMBOLS  = ["BTC", "ETH", "BNB"]
+EXEC_SYMBOL     = "BNB"   # always execute on BNB — BSC native
 
 # ── Logging ───────────────────────────────────────────────────────────────────
 def log(level: str, msg: str):
@@ -34,16 +38,39 @@ def log(level: str, msg: str):
 
 def save_log(entry: dict):
     os.makedirs("logs", exist_ok=True)
-    path = "logs/agent.jsonl"
-    with open(path, "a") as f:
+    with open("logs/agent.jsonl", "a") as f:
         f.write(json.dumps(entry) + "\n")
 
-# ── Agent ─────────────────────────────────────────────────────────────────────
+# ── Execution logic ───────────────────────────────────────────────────────────
+def execute_signal(signal: dict, regime: str) -> dict:
+    """
+    LONG  → buy BNB with USDT  (USDT → BNB)
+    SHORT → sell BNB for USDT  (BNB → USDT)
+    Amount: always TRADE_USDT worth
+    """
+    direction = signal["direction"]
+
+    if direction == "LONG":
+        from_tok = "USDT"
+        to_tok   = "BNB"
+        amount   = TRADE_USDT          # spend $5 USDT to buy BNB
+    else:
+        from_tok = "BNB"
+        to_tok   = "USDT"
+        # Convert USDT amount to BNB quantity
+        bnb_price = get_price("BNB") or 600.0
+        amount    = round(TRADE_USDT / bnb_price, 6)  # e.g. 5/600 = 0.008333 BNB
+
+    return from_tok, to_tok, amount
+
+
+# ── Agent loop ────────────────────────────────────────────────────────────────
 def run_agent():
-    log("INFO", f"LEORIX Edge Agent starting")
-    log("INFO", f"Wallet : {WALLET_ADDRESS}")
-    log("INFO", f"DRY RUN: {DRY_RUN}")
-    log("INFO", f"Trade  : ${TRADE_AMOUNT} per signal")
+    log("INFO", "LEORIX Edge Agent starting")
+    log("INFO", f"Wallet   : {WALLET_ADDRESS}")
+    log("INFO", f"DRY RUN  : {DRY_RUN}")
+    log("INFO", f"Trade    : ${TRADE_USDT} USDT per signal")
+    log("INFO", f"Execution: BNB/USDT on BSC")
     log("INFO", f"Min confluence: {MIN_CONFLUENCE}/5")
 
     client = CMCClient(CMC_API_KEY)
@@ -52,10 +79,7 @@ def run_agent():
         max_open_positions=3,
         max_risk_per_trade_pct=1.0,
     )
-
-    # Set starting balance (use TRADE_AMOUNT * 10 as proxy for testnet)
-    starting_balance = TRADE_AMOUNT * 10
-    cb.update_balance(starting_balance)
+    cb.update_balance(TRADE_USDT * 10)
 
     log("INFO", "Agent ready. Starting scan loop...\n")
 
@@ -67,13 +91,17 @@ def run_agent():
             regime = client.get_market_regime()
             log("INFO", f"Market regime: {regime}")
 
-            can_trade, block_reason = cb.can_trade(starting_balance)
+            can_trade, block_reason = cb.can_trade(TRADE_USDT * 10)
             if not can_trade:
                 log("BLOCK", f"Circuit breaker: {block_reason}")
                 time.sleep(SCAN_INTERVAL)
                 continue
 
-            for symbol in SYMBOLS:
+            best_signal = None
+            best_confluence = 0
+
+            # Scan all symbols, pick highest confluence signal
+            for symbol in SIGNAL_SYMBOLS:
                 try:
                     candles = client.get_ohlcv_historical(symbol, interval="4h", limit=100)
                     signal = generate_signal(symbol, candles, regime, min_rr=2.0)
@@ -83,70 +111,77 @@ def run_agent():
                         continue
 
                     if signal["confluence"] < MIN_CONFLUENCE:
-                        log("SKIP", f"{symbol}: Low confluence {signal['confluence']}/{5}")
+                        log("SKIP", f"{symbol}: Low confluence {signal['confluence']}/5")
                         continue
 
                     log("SIGNAL", (
                         f"{symbol} {signal['direction']} | "
+                        f"Confluence: {signal['confluence']}/5 | "
                         f"Entry: {signal['entry']} | "
-                        f"SL: {signal['sl']} | "
-                        f"TP: {signal['tp']} | "
-                        f"RR: {signal['rr']} | "
-                        f"Confluence: {signal['confluence']}/5"
+                        f"RR: {signal['rr']}"
                     ))
-                    for r in signal["reasons"]:
-                        log("REASON", f"  • {r}")
 
-                    # Determine swap direction
-                    # LONG BNB = buy BNB with USDT
-                    # SHORT BNB = sell BNB for USDT
-                    if signal["direction"] == "LONG":
-                        from_tok, to_tok = "USDT", symbol if symbol != "BTC" else "WBTC"
-                    else:
-                        from_tok, to_tok = symbol if symbol != "BTC" else "WBTC", "USDT"
-
-                    # Get quote first
-                    quote = swap_quote(from_tok, to_tok, TRADE_AMOUNT)
-                    log("QUOTE", f"{symbol}: {quote['raw'][:80]}")
-
-                    entry = {
-                        "time": scan_time,
-                        "symbol": symbol,
-                        "direction": signal["direction"],
-                        "entry": signal["entry"],
-                        "sl": signal["sl"],
-                        "tp": signal["tp"],
-                        "rr": signal["rr"],
-                        "confluence": signal["confluence"],
-                        "regime": regime,
-                        "dry_run": DRY_RUN,
-                        "reasons": signal["reasons"],
-                    }
-
-                    if DRY_RUN:
-                        log("DRY", f"{symbol}: Signal logged, execution skipped (DRY_RUN=true)")
-                        entry["status"] = "DRY_RUN"
-                        save_log(entry)
-                    else:
-                        log("EXEC", f"{symbol}: Executing swap {from_tok} → {to_tok} ${TRADE_AMOUNT}")
-                        result = swap_execute(from_tok, to_tok, TRADE_AMOUNT)
-                        if result["success"]:
-                            log("OK", f"{symbol}: Swap executed — TX: {result['tx_hash']}")
-                            entry["status"] = "EXECUTED"
-                            entry["tx_hash"] = result["tx_hash"]
-                            cb.record_trade_open()
-                        else:
-                            log("ERR", f"{symbol}: Swap failed — {result['raw'][:100]}")
-                            entry["status"] = "FAILED"
-                            entry["error"] = result["raw"][:200]
-
-                        save_log(entry)
+                    if signal["confluence"] > best_confluence:
+                        best_confluence = signal["confluence"]
+                        best_signal = signal
+                        best_signal["symbol"] = symbol
 
                 except Exception as e:
                     log("ERR", f"{symbol}: {e}")
                     continue
 
-            # Circuit breaker status
+            # Execute best signal only
+            if best_signal:
+                symbol = best_signal["symbol"]
+                direction = best_signal["direction"]
+
+                for r in best_signal["reasons"]:
+                    log("REASON", f"  • {r}")
+
+                from_tok, to_tok, amount = execute_signal(best_signal, regime)
+                log("TRADE", f"Executing: {amount} {from_tok} → {to_tok} (${TRADE_USDT} notional)")
+
+                # Get quote first
+                quote = swap_quote(from_tok, to_tok, amount)
+                log("QUOTE", f"{quote['raw'][:120]}")
+
+                entry = {
+                    "time": scan_time,
+                    "symbol": symbol,
+                    "direction": direction,
+                    "entry": best_signal["entry"],
+                    "sl": best_signal["sl"],
+                    "tp": best_signal["tp"],
+                    "rr": best_signal["rr"],
+                    "confluence": best_signal["confluence"],
+                    "regime": regime,
+                    "from_token": from_tok,
+                    "to_token": to_tok,
+                    "amount": amount,
+                    "dry_run": DRY_RUN,
+                    "reasons": best_signal["reasons"],
+                }
+
+                if DRY_RUN:
+                    log("DRY", f"Signal logged, execution skipped (DRY_RUN=true)")
+                    entry["status"] = "DRY_RUN"
+                    save_log(entry)
+                else:
+                    log("EXEC", f"Sending swap: {amount} {from_tok} → {to_tok}")
+                    result = swap_execute(from_tok, to_tok, amount)
+                    if result["success"]:
+                        log("OK", f"✅ Swap executed — TX: {result['tx_hash']}")
+                        entry["status"] = "EXECUTED"
+                        entry["tx_hash"] = result["tx_hash"]
+                        cb.record_trade_open()
+                    else:
+                        log("ERR", f"Swap failed — {result['raw'][:150]}")
+                        entry["status"] = "FAILED"
+                        entry["error"] = result["raw"][:200]
+                    save_log(entry)
+            else:
+                log("INFO", "No qualifying signal this scan")
+
             status = cb.status()
             log("CB", (
                 f"Daily PnL: {status['daily_pnl_usd']}  "
@@ -162,24 +197,25 @@ def run_agent():
         time.sleep(SCAN_INTERVAL)
 
 
-# ── Single scan mode (for testing) ────────────────────────────────────────────
 def run_once():
-    """Run one scan and exit — for testing."""
     log("INFO", "Single scan mode")
     client = CMCClient(CMC_API_KEY)
     regime = client.get_market_regime()
     log("INFO", f"Regime: {regime}")
 
-    for symbol in SYMBOLS:
+    for symbol in SIGNAL_SYMBOLS:
         candles = client.get_ohlcv_historical(symbol, interval="4h", limit=100)
         signal = generate_signal(symbol, candles, regime, min_rr=2.0)
         print(f"\n{symbol}: {signal['direction']} | confluence {signal.get('confluence',0)}/5")
         for r in signal.get("reasons", []):
             print(f"  • {r}")
 
+        if signal["direction"] != "NO_SIGNAL":
+            from_tok, to_tok, amount = execute_signal(signal, regime)
+            print(f"  → Would swap: {amount} {from_tok} → {to_tok}")
+
 
 if __name__ == "__main__":
-    import sys
     if "--once" in sys.argv:
         run_once()
     else:
