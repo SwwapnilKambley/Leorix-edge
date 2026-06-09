@@ -1,0 +1,601 @@
+[
+  {
+    "symbol": "BTC",
+    "direction": "SHORT",
+    "entry_time": "2026-03-29 20:00",
+    "exit_time": "2026-03-30 00:00",
+    "entry": 66010.93,
+    "sl": 67389.5886,
+    "tp": 63253.6129,
+    "rr": 2.0,
+    "confluence": 3,
+    "outcome": "LOSS",
+    "pnl_r": -1.0,
+    "reasons": [
+      "EMA trend: SHORT (EMA20=67155.29 / EMA50=68496.45)",
+      "BOS confirmed",
+      "Order Block present",
+      "Regime: BEAR"
+    ]
+  },
+  {
+    "symbol": "BTC",
+    "direction": "SHORT",
+    "entry_time": "2026-04-02 12:00",
+    "exit_time": "2026-04-05 20:00",
+    "entry": 66852.91,
+    "sl": 69102.3357,
+    "tp": 62354.0586,
+    "rr": 2.0,
+    "confluence": 2,
+    "outcome": "LOSS",
+    "pnl_r": -1.0,
+    "reasons": [
+      "EMA trend: SHORT (EMA20=67435.90 / EMA50=67923.33)",
+      "Order Block present",
+      "Volume spike",
+      "Regime: BEAR"
+    ]
+  },
+  {
+    "symbol": "BTC",
+    "direction": "SHORT",
+    "entry_time": "2026-04-06 00:00",
+    "exit_time": "2026-04-06 08:00",
+    "entry": 69123.69,
+    "sl": 70188.9857,
+    "tp": 66993.0986,
+    "rr": 2.0,
+    "confluence": 3,
+    "outcome": "LOSS",
+    "pnl_r": -1.0,
+    "reasons": [
+      "EMA trend: SHORT (EMA20=67505.83 / EMA50=67592.83)",
+      "Liquidity sweep",
+      "Order Block present",
+      "Volume spike",
+      "Regime: BEAR"
+    ]
+  },
+  {
+    "symbol": "BTC",
+    "direction": "SHORT",
+    "entry_time": "2026-04-29 16:00",
+    "exit_time": "2026-05-01 00:00",
+    "entry": 75563.86,
+    "sl": 77357.0643,
+    "tp": 71977.4514,
+    "rr": 2.0,
+    "confluence": 4,
+    "outcome": "LOSS",
+    "pnl_r": -1.0,
+    "reasons": [
+      "EMA trend: SHORT (EMA20=76883.22 / EMA50=76907.56)",
+      "BOS confirmed",
+      "Order Block present",
+      "Volume spike",
+      "Regime: BEAR"
+    ]
+  },
+  {
+    "symbol": "BTC",
+    "direction": "SHORT",
+    "entry_time": "2026-05-14 12:00",
+    "exit_time": "2026-05-17 20:00",
+    "entry": 81301.23,
+    "sl": 83132.3557,
+    "tp": 77638.9786,
+    "rr": 2.0,
+    "confluence": 2,
+    "outcome": "WIN",
+    "pnl_r": 2.0,
+    "reasons": [
+      "EMA trend: SHORT (EMA20=80297.57 / EMA50=80306.54)",
+      "Order Block present",
+      "Volume spike",
+      "Regime: BEAR"
+    ]
+  },
+  {
+    "symbol": "BTC",
+    "direction": "SHORT",
+    "entry_time": "2026-05-18 00:00",
+    "exit_time": "2026-05-21 00:00",
+    "entry": 76924.65,
+    "sl": 78163.3271,
+    "tp": 74447.2957,
+    "rr": 2.0,
+    "confluence": 2,
+    "outcome": "LOSS",
+    "pnl_r": -1.0,
+    "reasons": [
+      "EMA trend: SHORT (EMA20=78594.70 / EMA50=79388.48)",
+      "Order Block present",
+      "Volume spike",
+      "Regime: BEAR"
+    ]
+  },
+  {
+    "symbol": "BTC",
+    "direction": "SHORT",
+    "entry_time": "2026-05-22 16:00",
+    "exit_time": "2026-05-23 20:00",
+    "entry": 75860.44,
+    "sl": 77360.4243,
+    "tp": 72860.4714,
+    "rr": 2.0,
+    "confluence": 4,
+    "outcome": "LOSS",
+    "pnl_r": -1.0,
+    "reasons": [
+      "EMA trend: SHORT (EMA20=77285.93 / EMA50=77914.21)",
+      "BOS confirmed",
+      "Order Block present",
+      "Volume spike",
+      "Regime: BEAR"
+    ]
+  },
+  {
+    "symbol": "BTC",
+    "direction": "SHORT",
+    "entry_time": "2026-05-26 12:00",
+    "exit_time": "2026-05-28 00:00",
+    "entry": 76518.1,
+    "sl": 78070.3229,
+    "tp": 73413.6543,
+    "rr": 2.0,
+    "confluence": 3,
+    "outcome": "WIN",
+    "pnl_r": 2.0,
+    "reasons": [
+      "EMA trend: SHORT (EMA20=76904.08 / EMA50=77193.23)",
+      "Liquidity sweep",
+      "Order Block present",
+      "Volume spike",
+      "Regime: BEAR"
+    ]
+  },
+  {
+    "symbol": "BTC",
+    "direction": "SHORT",
+    "entry_time": "2026-05-30 16:00",
+    "exit_time": "2026-06-01 12:00",
+    "entry": 74016.65,
+    "sl": 75462.6543,
+    "tp": 71124.6414,
+    "rr": 2.0,
+    "confluence": 2,
+    "outcome": "WIN",
+    "pnl_r": 2.0,
+    "reasons": [
+      "EMA trend: SHORT (EMA20=74060.35 / EMA50=75163.57)",
+      "Liquidity sweep",
+      "Order Block present",
+      "Regime: BEAR"
+    ]
+  },
+  {
+    "symbol": "BTC",
+    "direction": "SHORT",
+    "entry_time": "2026-06-03 04:00",
+    "exit_time": "2026-06-04 00:00",
+    "entry": 67220.03,
+    "sl": 69956.6814,
+    "tp": 61746.7271,
+    "rr": 2.0,
+    "confluence": 2,
+    "outcome": "WIN",
+    "pnl_r": 2.0,
+    "reasons": [
+      "EMA trend: SHORT (EMA20=70169.05 / EMA50=72541.01)",
+      "Order Block present",
+      "Volume spike",
+      "Regime: BEAR"
+    ]
+  },
+  {
+    "symbol": "ETH",
+    "direction": "SHORT",
+    "entry_time": "2026-03-29 20:00",
+    "exit_time": "2026-03-30 00:00",
+    "entry": 1984.64,
+    "sl": 2036.2671,
+    "tp": 1881.3857,
+    "rr": 2.0,
+    "confluence": 2,
+    "outcome": "LOSS",
+    "pnl_r": -1.0,
+    "reasons": [
+      "EMA trend: SHORT (EMA20=2021.72 / EMA50=2073.11)",
+      "Order Block present",
+      "Volume spike",
+      "Regime: BEAR"
+    ]
+  },
+  {
+    "symbol": "ETH",
+    "direction": "SHORT",
+    "entry_time": "2026-04-03 12:00",
+    "exit_time": "2026-04-06 00:00",
+    "entry": 2051.26,
+    "sl": 2125.8829,
+    "tp": 1902.0143,
+    "rr": 2.0,
+    "confluence": 2,
+    "outcome": "LOSS",
+    "pnl_r": -1.0,
+    "reasons": [
+      "EMA trend: SHORT (EMA20=2068.26 / EMA50=2073.56)",
+      "Liquidity sweep",
+      "Order Block present",
+      "Regime: BEAR"
+    ]
+  },
+  {
+    "symbol": "ETH",
+    "direction": "SHORT",
+    "entry_time": "2026-04-28 12:00",
+    "exit_time": "2026-04-29 08:00",
+    "entry": 2279.76,
+    "sl": 2346.0871,
+    "tp": 2147.1057,
+    "rr": 2.0,
+    "confluence": 2,
+    "outcome": "LOSS",
+    "pnl_r": -1.0,
+    "reasons": [
+      "EMA trend: SHORT (EMA20=2310.58 / EMA50=2319.35)",
+      "Order Block present",
+      "Volume spike",
+      "Regime: BEAR"
+    ]
+  },
+  {
+    "symbol": "ETH",
+    "direction": "SHORT",
+    "entry_time": "2026-05-02 16:00",
+    "exit_time": "2026-05-03 20:00",
+    "entry": 2311.08,
+    "sl": 2349.1443,
+    "tp": 2234.9514,
+    "rr": 2.0,
+    "confluence": 2,
+    "outcome": "LOSS",
+    "pnl_r": -1.0,
+    "reasons": [
+      "EMA trend: SHORT (EMA20=2294.05 / EMA50=2299.75)",
+      "Liquidity sweep",
+      "Order Block present",
+      "Regime: BEAR"
+    ]
+  },
+  {
+    "symbol": "ETH",
+    "direction": "SHORT",
+    "entry_time": "2026-05-09 04:00",
+    "exit_time": "2026-05-10 16:00",
+    "entry": 2314.69,
+    "sl": 2367.7029,
+    "tp": 2208.6643,
+    "rr": 2.0,
+    "confluence": 2,
+    "outcome": "LOSS",
+    "pnl_r": -1.0,
+    "reasons": [
+      "EMA trend: SHORT (EMA20=2318.03 / EMA50=2323.39)",
+      "Liquidity sweep",
+      "Order Block present",
+      "Regime: BEAR"
+    ]
+  },
+  {
+    "symbol": "ETH",
+    "direction": "SHORT",
+    "entry_time": "2026-05-13 04:00",
+    "exit_time": "2026-05-16 04:00",
+    "entry": 2301.07,
+    "sl": 2353.3957,
+    "tp": 2196.4186,
+    "rr": 2.0,
+    "confluence": 2,
+    "outcome": "WIN",
+    "pnl_r": 2.0,
+    "reasons": [
+      "EMA trend: SHORT (EMA20=2309.36 / EMA50=2318.55)",
+      "Liquidity sweep",
+      "Order Block present",
+      "Regime: BEAR"
+    ]
+  },
+  {
+    "symbol": "ETH",
+    "direction": "SHORT",
+    "entry_time": "2026-05-17 08:00",
+    "exit_time": "2026-05-17 20:00",
+    "entry": 2192.0,
+    "sl": 2235.2557,
+    "tp": 2105.4886,
+    "rr": 2.0,
+    "confluence": 2,
+    "outcome": "WIN",
+    "pnl_r": 2.0,
+    "reasons": [
+      "EMA trend: SHORT (EMA20=2219.25 / EMA50=2259.22)",
+      "Liquidity sweep",
+      "Order Block present",
+      "Regime: BEAR"
+    ]
+  },
+  {
+    "symbol": "ETH",
+    "direction": "SHORT",
+    "entry_time": "2026-05-21 00:00",
+    "exit_time": "2026-05-23 04:00",
+    "entry": 2145.76,
+    "sl": 2196.0243,
+    "tp": 2045.2314,
+    "rr": 2.0,
+    "confluence": 2,
+    "outcome": "WIN",
+    "pnl_r": 2.0,
+    "reasons": [
+      "EMA trend: SHORT (EMA20=2139.42 / EMA50=2183.53)",
+      "Liquidity sweep",
+      "Order Block present",
+      "Regime: BEAR"
+    ]
+  },
+  {
+    "symbol": "ETH",
+    "direction": "SHORT",
+    "entry_time": "2026-05-25 16:00",
+    "exit_time": "2026-05-28 00:00",
+    "entry": 2121.43,
+    "sl": 2178.7229,
+    "tp": 2006.8443,
+    "rr": 2.0,
+    "confluence": 2,
+    "outcome": "WIN",
+    "pnl_r": 2.0,
+    "reasons": [
+      "EMA trend: SHORT (EMA20=2107.99 / EMA50=2130.07)",
+      "Liquidity sweep",
+      "Order Block present",
+      "Regime: BEAR"
+    ]
+  },
+  {
+    "symbol": "ETH",
+    "direction": "SHORT",
+    "entry_time": "2026-05-31 12:00",
+    "exit_time": "2026-06-02 12:00",
+    "entry": 2010.52,
+    "sl": 2050.5057,
+    "tp": 1930.5486,
+    "rr": 2.0,
+    "confluence": 3,
+    "outcome": "WIN",
+    "pnl_r": 2.0,
+    "reasons": [
+      "EMA trend: SHORT (EMA20=2025.30 / EMA50=2054.09)",
+      "BOS confirmed",
+      "Order Block present",
+      "Regime: BEAR"
+    ]
+  },
+  {
+    "symbol": "ETH",
+    "direction": "SHORT",
+    "entry_time": "2026-06-04 00:00",
+    "exit_time": "2026-06-05 12:00",
+    "entry": 1809.24,
+    "sl": 1919.9114,
+    "tp": 1587.8971,
+    "rr": 2.0,
+    "confluence": 2,
+    "outcome": "WIN",
+    "pnl_r": 2.0,
+    "reasons": [
+      "EMA trend: SHORT (EMA20=1902.43 / EMA50=1971.89)",
+      "Order Block present",
+      "Volume spike",
+      "Regime: BEAR"
+    ]
+  },
+  {
+    "symbol": "BNB",
+    "direction": "SHORT",
+    "entry_time": "2026-03-29 20:00",
+    "exit_time": "2026-03-30 00:00",
+    "entry": 606.09,
+    "sl": 617.1443,
+    "tp": 583.9814,
+    "rr": 2.0,
+    "confluence": 4,
+    "outcome": "LOSS",
+    "pnl_r": -1.0,
+    "reasons": [
+      "EMA trend: SHORT (EMA20=616.34 / EMA50=626.47)",
+      "BOS confirmed",
+      "Order Block present",
+      "Volume spike",
+      "Regime: BEAR"
+    ]
+  },
+  {
+    "symbol": "BNB",
+    "direction": "SHORT",
+    "entry_time": "2026-04-02 12:00",
+    "exit_time": "2026-04-04 16:00",
+    "entry": 574.13,
+    "sl": 593.0129,
+    "tp": 536.3643,
+    "rr": 2.0,
+    "confluence": 3,
+    "outcome": "LOSS",
+    "pnl_r": -1.0,
+    "reasons": [
+      "EMA trend: SHORT (EMA20=604.20 / EMA50=614.70)",
+      "BOS confirmed",
+      "Volume spike",
+      "Regime: BEAR"
+    ]
+  },
+  {
+    "symbol": "BNB",
+    "direction": "SHORT",
+    "entry_time": "2026-04-06 00:00",
+    "exit_time": "2026-04-07 20:00",
+    "entry": 600.61,
+    "sl": 610.5957,
+    "tp": 580.6386,
+    "rr": 2.0,
+    "confluence": 3,
+    "outcome": "LOSS",
+    "pnl_r": -1.0,
+    "reasons": [
+      "EMA trend: SHORT (EMA20=594.43 / EMA50=601.59)",
+      "Liquidity sweep",
+      "Order Block present",
+      "Volume spike",
+      "Regime: BEAR"
+    ]
+  },
+  {
+    "symbol": "BNB",
+    "direction": "SHORT",
+    "entry_time": "2026-04-13 00:00",
+    "exit_time": "2026-04-13 16:00",
+    "entry": 594.68,
+    "sl": 605.9143,
+    "tp": 572.2114,
+    "rr": 2.0,
+    "confluence": 2,
+    "outcome": "LOSS",
+    "pnl_r": -1.0,
+    "reasons": [
+      "EMA trend: SHORT (EMA20=599.55 / EMA50=601.86)",
+      "Liquidity sweep",
+      "Order Block present",
+      "Regime: BEAR"
+    ]
+  },
+  {
+    "symbol": "BNB",
+    "direction": "SHORT",
+    "entry_time": "2026-05-01 00:00",
+    "exit_time": "2026-05-04 04:00",
+    "entry": 618.5,
+    "sl": 628.76,
+    "tp": 597.98,
+    "rr": 2.0,
+    "confluence": 2,
+    "outcome": "LOSS",
+    "pnl_r": -1.0,
+    "reasons": [
+      "EMA trend: SHORT (EMA20=620.64 / EMA50=624.96)",
+      "Liquidity sweep",
+      "Order Block present",
+      "Regime: BEAR"
+    ]
+  },
+  {
+    "symbol": "BNB",
+    "direction": "SHORT",
+    "entry_time": "2026-05-04 12:00",
+    "exit_time": "2026-05-06 00:00",
+    "entry": 625.47,
+    "sl": 635.5886,
+    "tp": 605.2329,
+    "rr": 2.0,
+    "confluence": 2,
+    "outcome": "LOSS",
+    "pnl_r": -1.0,
+    "reasons": [
+      "EMA trend: SHORT (EMA20=620.83 / EMA50=622.09)",
+      "Order Block present",
+      "Volume spike",
+      "Regime: BEAR"
+    ]
+  },
+  {
+    "symbol": "BNB",
+    "direction": "SHORT",
+    "entry_time": "2026-05-18 12:00",
+    "exit_time": "2026-05-20 20:00",
+    "entry": 637.03,
+    "sl": 651.7171,
+    "tp": 607.6557,
+    "rr": 2.0,
+    "confluence": 4,
+    "outcome": "LOSS",
+    "pnl_r": -1.0,
+    "reasons": [
+      "EMA trend: SHORT (EMA20=653.88 / EMA50=657.02)",
+      "BOS confirmed",
+      "Order Block present",
+      "Volume spike",
+      "Regime: BEAR"
+    ]
+  },
+  {
+    "symbol": "BNB",
+    "direction": "SHORT",
+    "entry_time": "2026-05-22 00:00",
+    "exit_time": "2026-05-23 04:00",
+    "entry": 659.61,
+    "sl": 671.0814,
+    "tp": 636.6671,
+    "rr": 2.0,
+    "confluence": 3,
+    "outcome": "WIN",
+    "pnl_r": 2.0,
+    "reasons": [
+      "EMA trend: SHORT (EMA20=651.15 / EMA50=652.32)",
+      "Liquidity sweep",
+      "Order Block present",
+      "Volume spike",
+      "Regime: BEAR"
+    ]
+  },
+  {
+    "symbol": "BNB",
+    "direction": "SHORT",
+    "entry_time": "2026-05-28 00:00",
+    "exit_time": "2026-05-30 00:00",
+    "entry": 637.81,
+    "sl": 651.4886,
+    "tp": 610.4529,
+    "rr": 2.0,
+    "confluence": 4,
+    "outcome": "LOSS",
+    "pnl_r": -1.0,
+    "reasons": [
+      "EMA trend: SHORT (EMA20=654.24 / EMA50=654.62)",
+      "BOS confirmed",
+      "Order Block present",
+      "Volume spike",
+      "Regime: BEAR"
+    ]
+  },
+  {
+    "symbol": "BNB",
+    "direction": "SHORT",
+    "entry_time": "2026-06-05 16:00",
+    "exit_time": "2026-06-07 20:00",
+    "entry": 567.33,
+    "sl": 603.4857,
+    "tp": 495.0186,
+    "rr": 2.0,
+    "confluence": 4,
+    "outcome": "LOSS",
+    "pnl_r": -1.0,
+    "reasons": [
+      "EMA trend: SHORT (EMA20=614.31 / EMA50=640.13)",
+      "BOS confirmed",
+      "Order Block present",
+      "Volume spike",
+      "Regime: BEAR"
+    ]
+  }
+]

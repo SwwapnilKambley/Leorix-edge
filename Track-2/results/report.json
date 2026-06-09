@@ -1,0 +1,49 @@
+{
+  "regime": "BEAR",
+  "per_symbol": [
+    {
+      "symbol": "BTC",
+      "total_trades": 10,
+      "wins": 4,
+      "losses": 6,
+      "win_rate_pct": 40.0,
+      "total_pnl_r": 2.0,
+      "avg_rr": 2.0,
+      "max_drawdown_r": 4.0,
+      "expectancy_r": 0.2
+    },
+    {
+      "symbol": "ETH",
+      "total_trades": 11,
+      "wins": 6,
+      "losses": 5,
+      "win_rate_pct": 54.5,
+      "total_pnl_r": 7.0,
+      "avg_rr": 2.0,
+      "max_drawdown_r": 5.0,
+      "expectancy_r": 0.64
+    },
+    {
+      "symbol": "BNB",
+      "total_trades": 10,
+      "wins": 1,
+      "losses": 9,
+      "win_rate_pct": 10.0,
+      "total_pnl_r": -7.0,
+      "avg_rr": 2.0,
+      "max_drawdown_r": 7.0,
+      "expectancy_r": -0.7
+    }
+  ],
+  "combined": {
+    "symbol": "ALL",
+    "total_trades": 31,
+    "wins": 11,
+    "losses": 20,
+    "win_rate_pct": 35.5,
+    "total_pnl_r": 2.0,
+    "avg_rr": 2.0,
+    "max_drawdown_r": 7.0,
+    "expectancy_r": 0.06
+  }
+}
