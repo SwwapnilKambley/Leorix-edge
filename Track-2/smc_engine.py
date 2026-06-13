@@ -2,9 +2,16 @@
 smc_engine.py — Smart Money Concepts engine for LEORIX Edge (Track 2)
 Detects: BOS, Liquidity Sweep, Order Block, Confluence Score
 Outputs: tradeable signal with entry, SL, TP, RR
+
+v2 fixes:
+  - detect_order_block tightened: the OB must be RELEVANT — its midpoint must
+    sit within 3×ATR of current price. Previously any opposing candle in the
+    last 10 scored a free +1 confluence, inflating signal quality.
+  - Signal.to_dict() added so the live agent (dict-based) can consume the
+    dataclass without restructuring.
 """
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field, asdict
 from typing import Optional
 
 
@@ -21,6 +28,10 @@ class Signal:
     regime: str             # BULL | BEAR | NEUTRAL
     ob_high: float = 0.0
     ob_low: float = 0.0
+
+    def to_dict(self) -> dict:
+        """Dict shape consumed by the live agent (Track 1)."""
+        return asdict(self)
 
 
 def _is_bullish(c: dict) -> bool:
@@ -42,10 +53,9 @@ def detect_bos(candles: list) -> Optional[str]:
     if len(candles) < 8:
         return None
 
-    # Check last 3 candles for a BOS (catches recent breaks)
     for i in range(1, 4):
         current = candles[-i]
-        lookback = candles[-(i + 6):-(i)]  # 5-candle swing window before current
+        lookback = candles[-(i + 6):-(i)]
         if len(lookback) < 5:
             continue
 
@@ -61,9 +71,7 @@ def detect_bos(candles: list) -> Optional[str]:
 
 
 def detect_liquidity_sweep(candles: list) -> Optional[str]:
-    """
-    Liquidity sweep — wick beyond previous swing then close back inside.
-    """
+    """Liquidity sweep — wick beyond previous swing then close back inside."""
     if len(candles) < 6:
         return None
 
@@ -82,32 +90,46 @@ def detect_liquidity_sweep(candles: list) -> Optional[str]:
     return None
 
 
-def detect_order_block(candles: list, direction: str) -> Optional[dict]:
+def detect_order_block(candles: list, direction: str, atr: float = 0.0) -> Optional[dict]:
     """
-    Order Block — last opposing candle before the BOS move.
+    Order Block — last opposing candle before the current move.
+
+    v2 TIGHTENED: the OB only counts if its midpoint is within 3×ATR of the
+    current price (or 5% if ATR unavailable). A red candle 10 candles ago and
+    8% away is not a tradeable order block — it was previously scoring a free
+    confluence point on nearly every signal.
     """
     if len(candles) < 5:
         return None
+
+    current_price = candles[-1]["close"]
+    max_dist = (atr * 3.0) if atr > 0 else (current_price * 0.05)
 
     lookback = candles[-10:-1]
 
     if direction == "LONG":
         for c in reversed(lookback):
             if _is_bearish(c):
-                return {
-                    "ob_high": c["open"],
-                    "ob_low": c["close"],
-                    "ob_mid": (c["open"] + c["close"]) / 2,
-                }
+                ob_mid = (c["open"] + c["close"]) / 2
+                if abs(current_price - ob_mid) <= max_dist:
+                    return {
+                        "ob_high": c["open"],
+                        "ob_low": c["close"],
+                        "ob_mid": ob_mid,
+                    }
+                return None  # nearest opposing candle too far — no valid OB
 
     elif direction == "SHORT":
         for c in reversed(lookback):
             if _is_bullish(c):
-                return {
-                    "ob_high": c["close"],
-                    "ob_low": c["open"],
-                    "ob_mid": (c["open"] + c["close"]) / 2,
-                }
+                ob_mid = (c["open"] + c["close"]) / 2
+                if abs(current_price - ob_mid) <= max_dist:
+                    return {
+                        "ob_high": c["close"],
+                        "ob_low": c["open"],
+                        "ob_mid": ob_mid,
+                    }
+                return None
 
     return None
 
@@ -143,13 +165,20 @@ def generate_signal(symbol: str, candles: list, regime: str, min_rr: float = 2.0
     Confluence score 0-5:
       +1 BOS confirmed
       +1 Liquidity sweep
-      +1 Order Block found
+      +1 Order Block found (must be within 3×ATR of price — v2)
       +1 Volume spike
       +1 Regime aligned
     """
     reasons = []
     confluence = 0
     direction = "NO_SIGNAL"
+
+    if len(candles) < 60:
+        return Signal(
+            symbol=symbol, direction="NO_SIGNAL",
+            entry=0, sl=0, tp=0, rr=0,
+            confluence=0, reasons=["Insufficient data"], regime=regime
+        )
 
     current_price = candles[-1]["close"]
     atr = calculate_atr(candles)
@@ -178,14 +207,14 @@ def generate_signal(symbol: str, candles: list, regime: str, min_rr: float = 2.0
         confluence += 1
         reasons.append(f"Liquidity sweep confirmed: {sweep}")
 
-    # ── 3. Order Block ───────────────────────────────────────────────────────
-    ob = detect_order_block(candles, direction)
+    # ── 3. Order Block (v2: proximity-validated) ─────────────────────────────
+    ob = detect_order_block(candles, direction, atr=atr)
     ob_high, ob_low = 0.0, 0.0
     if ob:
         confluence += 1
         ob_high = ob["ob_high"]
         ob_low = ob["ob_low"]
-        reasons.append(f"Order Block: {ob_low:.2f} – {ob_high:.2f}")
+        reasons.append(f"Order Block (within 3×ATR): {ob_low:.2f} – {ob_high:.2f}")
 
     # ── 4. Volume Spike ──────────────────────────────────────────────────────
     if detect_volume_spike(candles):
@@ -235,7 +264,7 @@ if __name__ == "__main__":
     sys.path.insert(0, ".")
     from cmc_client import CMCClient
 
-    API_KEY = os.getenv("CMC_API_KEY", "2d25132563a8497893597470798e861e")
+    API_KEY = os.getenv("CMC_API_KEY", "")
     client = CMCClient(API_KEY)
     regime = client.get_market_regime()
 
@@ -246,7 +275,7 @@ if __name__ == "__main__":
         print(f"  {symbol} — 4H Signal Analysis")
         print(f"{'─'*50}")
 
-        candles = client.get_ohlcv_historical(symbol, interval="4h", limit=60)
+        candles = client.get_ohlcv_historical(symbol, interval="4h", limit=100)
         signal = generate_signal(symbol, candles, regime)
 
         print(f"  Direction  : {signal.direction}")

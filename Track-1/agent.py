@@ -1,37 +1,58 @@
 """
 agent.py — LEORIX Edge Track 1 — Autonomous Trading Agent
-Stack: CMC Signal → SMC Momentum Strategy → Circuit Breaker → TWAK Execution
-Chain: BSC Testnet
+Stack: CMC Signal → SMC Engine (unified brain) → Circuit Breaker → TWAK Execution
+Chain: set via .env (CHAIN=smartchain for mainnet)
 OCO: TP + SL placed after entry. When one fires, the other is cancelled.
 State: persisted to disk — survives restarts.
-Optimizations: Single-pass CLI registry scanning ($O(1)$) + Atomic exit validation.
+
+v2 fixes:
+  - dotenv: .env loads from the script's own directory regardless of how the
+    process is launched (nohup/systemd/cron start with a clean environment —
+    without this, os.getenv fell back to defaults and DRY_RUN wrongly read true).
+  - UNIFIED BRAIN: signals come from Track-2 smc_engine.generate_signal (the
+    proper SMC engine with proximity-validated order blocks + regime alignment),
+    not the weaker skill.py logic.
+  - Counter-trend protection preserved: BEAR regime blocks LONGs, BULL blocks
+    SHORTs (smc_engine scores alignment but doesn't block — we block here).
+  - REAL BALANCE: circuit breaker is fed the actual wallet balance via
+    executor.get_portfolio_usd(), falling back to STARTING_BALANCE_USD env.
+  - Startup credential check logged (without printing secrets).
 """
 
 import os, sys, json, time, re
 from datetime import datetime
 
+# ── Load .env from this script's directory (works under nohup/systemd) ───────
+try:
+    from dotenv import load_dotenv
+    _env_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), ".env")
+    load_dotenv(_env_path)
+except ImportError:
+    print("[WARN] python-dotenv not installed — run: pip install python-dotenv")
+
 sys.path.insert(0, "../Track-2")
 from cmc_client import CMCClient
-from skill import generate_signal
-from datetime import UTC
+from smc_engine import generate_signal          # v2: unified brain (was skill.py)
 
 sys.path.insert(0, ".")
 from circuit_breaker import CircuitBreaker
-from executor import get_price, swap_quote, swap_execute, _run, WALLET_ADDRESS
+from executor import (get_price, swap_quote, swap_execute, _run,
+                      get_portfolio_usd, WALLET_ADDRESS)
 
 # ── Config ────────────────────────────────────────────────────────────────────
-CMC_API_KEY    = os.getenv("CMC_API_KEY", "2d25132563a8497893597470798e861e")
+CMC_API_KEY    = os.getenv("CMC_API_KEY", "")
 TRADE_USDT     = float(os.getenv("TRADE_AMOUNT_USD", "5"))
 MIN_CONFLUENCE = int(os.getenv("MIN_CONFLUENCE", "3"))
 SCAN_INTERVAL  = int(os.getenv("SCAN_INTERVAL_SEC", "300"))
 DRY_RUN        = os.getenv("DRY_RUN", "true").lower() == "true"
-CHAIN          = os.getenv("CHAIN", "smartchain-testnet")
+CHAIN          = os.getenv("CHAIN", "smartchain-testnet").strip('"')
+FALLBACK_BAL   = float(os.getenv("STARTING_BALANCE_USD", "50"))
 SIGNAL_SYMBOLS = ["BTC", "ETH", "BNB"]
 STATE_FILE     = "logs/state.json"
 
 # ── Logging ───────────────────────────────────────────────────────────────────
 def log(level: str, msg: str):
-    ts = datetime.now(UTC).strftime("%Y-%m-%d %H:%M:%S")
+    ts = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S")
     print(f"[{ts}] [{level}] {msg}", flush=True)
 
 def save_log(entry: dict):
@@ -41,7 +62,6 @@ def save_log(entry: dict):
 
 # ── State persistence ─────────────────────────────────────────────────────────
 def load_state() -> dict:
-    """Load open positions from disk on startup."""
     if os.path.exists(STATE_FILE):
         try:
             with open(STATE_FILE, "r") as f:
@@ -54,7 +74,6 @@ def load_state() -> dict:
     return {}
 
 def save_state(open_positions: dict):
-    """Atomically write open positions to disk."""
     try:
         os.makedirs("logs", exist_ok=True)
         tmp = f"{STATE_FILE}.tmp"
@@ -64,9 +83,18 @@ def save_state(open_positions: dict):
     except Exception as e:
         log("ERR", f"Failed to save state: {e}")
 
+# ── Balance helper ────────────────────────────────────────────────────────────
+def get_real_balance() -> float:
+    """Real wallet USD via TWAK; falls back to STARTING_BALANCE_USD env."""
+    usd = get_portfolio_usd()
+    if usd and usd > 0:
+        return usd
+    log("WARN", f"Could not parse wallet balance — using STARTING_BALANCE_USD=${FALLBACK_BAL}")
+    return FALLBACK_BAL
+
 # ── TWAK helpers ──────────────────────────────────────────────────────────────
 def place_limit_order(from_tok: str, to_tok: str, amount: float,
-                      price: float, condition: str) -> str | None:
+                      price: float, condition: str):
     ok, output = _run([
         "automate", "add",
         "--from", from_tok, "--to", to_tok,
@@ -81,7 +109,7 @@ def place_limit_order(from_tok: str, to_tok: str, amount: float,
         try:
             data = json.loads(output)
             return data.get("id")
-        except:
+        except Exception:
             match = re.search(r'"id":\s*"([a-f0-9\-]{36})"', output)
             return match.group(1) if match else None
     return None
@@ -91,7 +119,6 @@ def cancel_order(automation_id: str) -> bool:
     return ok
 
 def get_active_automation_ids() -> set:
-    """Fetches all active automation IDs in a single process execution."""
     ok, output = _run(["automate", "list", "--json"])
     if not ok:
         log("ERR", "Failed to query active automation registry")
@@ -122,14 +149,13 @@ def place_oco_exits(direction: str, tp: float, sl: float) -> tuple:
 
 # ── Position monitor (OCO logic) ──────────────────────────────────────────────
 def monitor_positions(open_positions: dict, cb: CircuitBreaker):
-    """Checks open positions using a single-pass active registry snapshot ($O(1)$ memory checks)."""
     closed = []
     active_ids = get_active_automation_ids()
 
     for symbol, pos in open_positions.items():
         tp_id    = pos.get("tp_id")
         sl_id    = pos.get("sl_id")
-        
+
         tp_alive = str(tp_id) in active_ids if tp_id else False
         sl_alive = str(sl_id) in active_ids if sl_id else False
 
@@ -169,18 +195,25 @@ def get_swap_params(direction: str):
 
 # ── Agent loop ────────────────────────────────────────────────────────────────
 def run_agent():
-    log("INFO", "LEORIX Edge Agent starting")
+    log("INFO", "LEORIX Edge Agent starting (v2 — unified SMC brain)")
     log("INFO", f"Wallet   : {WALLET_ADDRESS}")
     log("INFO", f"DRY RUN  : {DRY_RUN}")
     log("INFO", f"Trade    : ${TRADE_USDT} USDT per signal")
     log("INFO", f"Chain    : {CHAIN}")
     log("INFO", f"Min confluence: {MIN_CONFLUENCE}/5")
+    log("INFO", f"Credentials loaded: PK={'YES' if os.getenv('PRIVATE_KEY') else 'NO'} | "
+                f"TWAK={'YES' if os.getenv('TW_ACCESS_ID') else 'NO'} | "
+                f"CMC={'YES' if CMC_API_KEY else 'NO'}")
 
     client = CMCClient(CMC_API_KEY)
-    cb = CircuitBreaker(max_daily_loss_pct=5.0, max_open_positions=3, max_risk_per_trade_pct=1.0)
-    cb.update_balance(TRADE_USDT * 10)
+    cb = CircuitBreaker(max_daily_loss_pct=5.0, max_open_positions=3,
+                        max_risk_per_trade_pct=1.0)
 
-    # Load persisted state
+    # Real wallet balance feeds the circuit breaker (5% limit on REAL money)
+    real_balance = get_real_balance()
+    cb.update_balance(real_balance)
+    log("INFO", f"Balance  : ${real_balance:.2f} (circuit breaker base)")
+
     open_positions = load_state()
 
     log("INFO", "Agent ready. Starting scan loop...\n")
@@ -190,7 +223,6 @@ def run_agent():
         log("SCAN", f"─── New scan at {scan_time} ───")
 
         try:
-            # Monitor open positions first (OCO check)
             if open_positions:
                 log("MONITOR", f"Checking {len(open_positions)} open position(s)...")
                 monitor_positions(open_positions, cb)
@@ -198,7 +230,11 @@ def run_agent():
             regime = client.get_market_regime()
             log("INFO", f"Market regime: {regime}")
 
-            can_trade, block_reason = cb.can_trade(TRADE_USDT * 10)
+            # Refresh balance for the breaker (handles day rollover)
+            current_balance = get_real_balance()
+            cb.update_balance(current_balance)
+
+            can_trade, block_reason = cb.can_trade(current_balance)
             if not can_trade:
                 log("BLOCK", f"Circuit breaker: {block_reason}")
                 time.sleep(SCAN_INTERVAL)
@@ -213,11 +249,22 @@ def run_agent():
                     continue
                 try:
                     candles = client.get_ohlcv_historical(symbol, interval="4h", limit=100)
-                    signal = generate_signal(symbol, candles, regime, min_rr=2.0)
+                    sig = generate_signal(symbol, candles, regime, min_rr=2.0)
+                    signal = sig.to_dict()    # v2: smc_engine returns Signal dataclass
 
                     if signal["direction"] == "NO_SIGNAL":
-                        log("SKIP", f"{symbol}: {signal.get('reason', 'No signal')}")
+                        reason = "; ".join(signal.get("reasons", [])) or "No signal"
+                        log("SKIP", f"{symbol}: {reason}")
                         continue
+
+                    # ── Counter-trend protection (preserved from skill.py) ──
+                    if regime == "BEAR" and signal["direction"] == "LONG":
+                        log("SKIP", f"{symbol}: counter-trend LONG blocked (BEAR regime)")
+                        continue
+                    if regime == "BULL" and signal["direction"] == "SHORT":
+                        log("SKIP", f"{symbol}: counter-trend SHORT blocked (BULL regime)")
+                        continue
+
                     if signal["confluence"] < MIN_CONFLUENCE:
                         log("SKIP", f"{symbol}: Low confluence {signal['confluence']}/5")
                         continue
@@ -270,6 +317,8 @@ def run_agent():
                     save_log(entry_log)
                 else:
                     result = swap_execute(from_tok, to_tok, amount, chain=CHAIN)
+                    # v2: swap_execute now requires a tx hash for success —
+                    # phantom swaps can no longer be tracked as real positions.
                     if result["success"]:
                         log("OK", f"✅ Entry executed — TX: {result['tx_hash']}")
                         cb.record_trade_open()
@@ -278,17 +327,21 @@ def run_agent():
 
                         log("OCO", f"Placing TP @ {tp:.2f} and SL @ {sl:.2f}...")
                         tp_id, sl_id = place_oco_exits(direction, tp, sl)
-                        
-                        # ── Atomic Exit Guard Logic ──
+
+                        # ── Atomic Exit Guard ──
                         if not tp_id or not sl_id:
                             log("CRITICAL", "Partial exit automation placement failure! Initiating emergency rollback counter-swap.")
                             if tp_id: cancel_order(tp_id)
                             if sl_id: cancel_order(sl_id)
-                            
+
                             rb_from, rb_to, rb_amt = get_swap_params("SHORT" if direction == "LONG" else "LONG")
-                            swap_execute(rb_from, rb_to, rb_amt, chain=CHAIN)
-                            
+                            rb = swap_execute(rb_from, rb_to, rb_amt, chain=CHAIN)
+                            if not rb["success"]:
+                                log("CRITICAL", f"⚠️ ROLLBACK FAILED — MANUAL INTERVENTION REQUIRED. Naked position on {symbol}!")
+                            cb.record_trade_close(0.0)   # position closed (or attempted)
+
                             entry_log["status"] = "REJECTED_EXIT_FAILURE"
+                            entry_log["rollback_success"] = rb["success"]
                             save_log(entry_log)
                             continue
 
@@ -331,12 +384,18 @@ def run_agent():
 
 def run_once():
     log("INFO", "Single scan mode")
+    log("INFO", f"DRY RUN  : {DRY_RUN}")
+    log("INFO", f"Chain    : {CHAIN}")
+    log("INFO", f"Credentials loaded: PK={'YES' if os.getenv('PRIVATE_KEY') else 'NO'} | "
+                f"TWAK={'YES' if os.getenv('TW_ACCESS_ID') else 'NO'} | "
+                f"CMC={'YES' if CMC_API_KEY else 'NO'}")
     client = CMCClient(CMC_API_KEY)
     regime = client.get_market_regime()
     log("INFO", f"Regime: {regime}")
     for symbol in SIGNAL_SYMBOLS:
         candles = client.get_ohlcv_historical(symbol, interval="4h", limit=100)
-        signal = generate_signal(symbol, candles, regime, min_rr=2.0)
+        sig = generate_signal(symbol, candles, regime, min_rr=2.0)
+        signal = sig.to_dict()
         print(f"\n{symbol}: {signal['direction']} | confluence {signal.get('confluence',0)}/5")
         for r in signal.get("reasons", []):
             print(f"  • {r}")
